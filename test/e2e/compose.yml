@@ -1,0 +1,30 @@
+# Rendered inputs live in .work/ (written by e2e_test.go).
+name: minivpn-e2e
+
+services:
+  api:
+    image: python:3.13-alpine
+    command: python -u /fake_api.py
+    environment:
+      API_KEY: e2e-key
+      NODE_NAME: ${NODE_NAME}
+    volumes:
+      - ./fake_api.py:/fake_api.py:ro
+    ports:
+      - "127.0.0.1:18080:8080"
+
+  # Ubuntu as the hoster ships it, with sshd: the test installs the node
+  # over SSH exactly as the app does.
+  node:
+    build:
+      context: .
+      dockerfile: node.Dockerfile
+      args:
+        PYTHON: ${MINIVPN_E2E_PYTHON-python3}
+    depends_on: [api]
+    volumes:
+      - ./.work:/work:ro
+    ports:
+      - "127.0.0.1:18022:22"
+      - "127.0.0.1:18443:443"
+      - "127.0.0.1:18443:443/udp"

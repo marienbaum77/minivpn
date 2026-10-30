@@ -1,0 +1,163 @@
+#!/bin/sh
+# minivpn node setup. The app uploads it over SSH and runs it detached, then
+# reads this log: "step <name>" lines show progress, "setup done" or
+# "failed at <step>" end it.
+#
+# The watchdog goes in first: if anything below fails, the node still has no
+# traffic and deletes itself instead of billing forever.
+#
+# MINIVPN_NO_SYSTEMD=1 runs sing-box and the watchdog in the foreground
+# instead of installing units (containers in tests). MINIVPN_SINGBOX_TGZ
+# points to a local copy of the release to skip the download.
+set -eu
+exec >>/var/log/minivpn-setup.log 2>&1
+echo "setup start $(date -u +%FT%TZ)"
+
+LIB=/usr/local/lib/minivpn
+ETC=/usr/local/etc/minivpn
+STEP=start
+step() {
+  STEP=$1
+  echo "step $1"
+}
+on_exit() {
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "failed at $STEP"
+  fi
+}
+trap on_exit EXIT
+
+step watchdog
+mkdir -p "$LIB" "$ETC" /var/lib/minivpn
+[ -f /var/lib/minivpn/born ] || date +%s >/var/lib/minivpn/born
+cat >"$LIB/watchdog.py" <<'MINIVPN_EOF'
+{{.WatchdogPy}}MINIVPN_EOF
+umask 077
+cat >"$ETC/watchdog.json" <<'MINIVPN_EOF'
+{{.WatchdogConfig}}
+MINIVPN_EOF
+umask 022
+
+# The watchdog needs python3; some images ship without it.
+if ! command -v python3 >/dev/null 2>&1; then
+  step python
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-minimal
+  step watchdog
+fi
+
+if [ -z "${MINIVPN_NO_SYSTEMD:-}" ]; then
+  cat >/etc/systemd/system/minivpn-watchdog.service <<'MINIVPN_EOF'
+[Unit]
+Description=minivpn watchdog: delete this node when the session is over
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/minivpn/watchdog.py
+MINIVPN_EOF
+  cat >/etc/systemd/system/minivpn-watchdog.timer <<'MINIVPN_EOF'
+[Unit]
+Description=Run the minivpn watchdog every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+MINIVPN_EOF
+  systemctl daemon-reload
+  systemctl enable --now minivpn-watchdog.timer
+fi
+
+# BBR keeps TCP throughput up on the long, lossy path from Russia; the big
+# UDP buffers keep QUIC (Hysteria2) from dropping bursts.
+cat >/etc/sysctl.d/90-minivpn.conf <<'MINIVPN_EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_mtu_probing = 1
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+MINIVPN_EOF
+sysctl -q -p /etc/sysctl.d/90-minivpn.conf || echo "sysctl not applied"
+
+step download
+TGZ=/tmp/sing-box.tar.gz
+if [ -n "${MINIVPN_SINGBOX_TGZ:-}" ]; then
+  cp "$MINIVPN_SINGBOX_TGZ" "$TGZ"
+else
+  curl -fsSL --retry 5 --retry-all-errors -o "$TGZ" \
+    "https://github.com/SagerNet/sing-box/releases/download/v{{.SingBoxVersion}}/sing-box-{{.SingBoxVersion}}-linux-amd64.tar.gz"
+fi
+step verify
+echo "{{.SingBoxSHA256}}  $TGZ" | sha256sum -c -
+tar -xzf "$TGZ" -C "$LIB" --strip-components=1 "sing-box-{{.SingBoxVersion}}-linux-amd64/sing-box"
+chmod 755 "$LIB/sing-box"
+rm -f "$TGZ"
+
+step config
+id minivpn >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin minivpn
+cat >"$ETC/config.json" <<'MINIVPN_EOF'
+{{.ServerConfig}}
+MINIVPN_EOF
+chown root:minivpn "$ETC/config.json"
+chmod 640 "$ETC/config.json"
+"$LIB/sing-box" check -c "$ETC/config.json"
+
+# Some images ship with ufw on and only SSH allowed: 443 would silently drop.
+step firewall
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 443/tcp
+  ufw allow 443/udp
+fi
+
+step sing-box
+if [ -n "${MINIVPN_NO_SYSTEMD:-}" ]; then
+  "$LIB/sing-box" run -c "$ETC/config.json" &
+  sleep 1
+  kill -0 $!
+  trap - EXIT
+  echo "setup done, running in foreground"
+  while :; do
+    python3 "$LIB/watchdog.py" || true
+    sleep "${MINIVPN_TICK:-60}"
+  done
+fi
+
+cat >/etc/systemd/system/minivpn-sing-box.service <<'MINIVPN_EOF'
+[Unit]
+Description=minivpn sing-box
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=minivpn
+Group=minivpn
+ExecStart=/usr/local/lib/minivpn/sing-box run -c /usr/local/etc/minivpn/config.json
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=yes
+Restart=on-failure
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+MINIVPN_EOF
+systemctl daemon-reload
+systemctl enable --now minivpn-sing-box.service
+sleep 1
+systemctl is-active --quiet minivpn-sing-box.service
+trap - EXIT
+rm -f "$0"
+echo "setup done $(date -u +%FT%TZ)"
+
+# The app has read "setup done" by now. Nothing else needs SSH on a node
+# that lives a few hours, and a password login on port 22 only invites brute
+# force. Open sessions survive: Ubuntu's ssh.service stops only the listener.
+sleep 3
+systemctl disable --now ssh.socket ssh.service 2>/dev/null || true

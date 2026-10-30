@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
+      - run: go test -race ./...
+      - name: Watchdog (Python)
+        working-directory: internal/node
+        run: python3 -m unittest watchdog_test.py
+      - name: Setup script (shellcheck)
+        run: |
+          go test -run TestScript ./internal/node/
+          go run ./test/render-setup > /tmp/setup.sh
+          shellcheck /tmp/setup.sh
+
+  e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -tags e2e -v -timeout 30m ./test/e2e/
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/settings/ ./internal/tunnel/ ./internal/client/ ./internal/ui/
+      - name: Build
+        run: go build -trimpath -ldflags "-H=windowsgui -s -w" -o minivpn.exe ./cmd/minivpn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minivpn-windows-amd64
+          path: minivpn.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [e2e, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: minivpn-windows-amd64
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha256sum minivpn.exe > minivpn.exe.sha256
+          gh release create "$GITHUB_REF_NAME" minivpn.exe minivpn.exe.sha256 --repo "$GITHUB_REPOSITORY" --generate-notes

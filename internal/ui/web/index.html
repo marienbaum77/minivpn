@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>minivpn</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand"><i id="rec" class="rec"></i>minivpn</span>
+  <span class="top-right"><span id="balance" class="label"></span><button id="pin" class="pin" aria-pressed="false" title="поверх окон" aria-label="поверх окон"></button></span>
+</header>
+
+<main id="home">
+  <section class="tile hero">
+    <div class="tile-head"><span id="phase">выкл</span><span id="rate"></span></div>
+    <div id="timer" class="matrix big" role="timer" aria-label="время"></div>
+    <button id="steps" class="steps hidden" data-sheet="log" title="лог"><i></i><i></i><i></i><i></i><span id="step"></span></button>
+    <p id="last-line" class="last-line hidden" data-sheet="log"></p>
+    <div id="ask" class="ask hidden"><span id="ask-text"></span><button id="extend" class="pill">+1 ч</button></div>
+  </section>
+
+  <div id="alert" class="alert hidden"><span id="error"></span><button id="force" class="pill red hidden">всё равно</button></div>
+
+  <div class="pair">
+    <button id="power" class="tile power" aria-label="пуск">
+      <span class="disc"><i class="glyph"></i><svg id="spin" class="spin hidden" viewBox="0 0 100 100" aria-hidden="true"></svg></span>
+      <span id="power-label" class="label">пуск</span>
+    </button>
+    <button id="pause" class="tile pause" aria-label="пауза" disabled>
+      <span class="disc"><i class="pause-glyph"></i></span>
+      <span id="pause-label" class="label">пауза</span>
+    </button>
+  </div>
+
+  <nav class="tabs">
+    <button class="pill" data-sheet="node">нода</button>
+    <button class="pill" data-sheet="journal">чек</button>
+    <button class="pill" data-sheet="log">лог</button>
+    <button class="pill" data-sheet="settings" aria-label="настройки">⚙</button>
+  </nav>
+</main>
+
+<section id="node" class="sheet hidden">
+  <div class="sheet-head"><span>нода</span><button class="close" aria-label="закрыть">×</button></div>
+  <p id="no-node" class="empty">нет ноды</p>
+  <div id="node-info" class="hidden">
+    <div class="row"><span>ip</span><b id="node-ip"></b></div>
+    <div class="row"><span>канал</span><b id="last-check"></b></div>
+    <div class="row"><span>адрес</span><b id="reputation"></b></div>
+    <img id="qr" class="qr" alt="QR vless://">
+    <p class="label center">телефон: v2rayNG · Hiddify · Happ</p>
+  </div>
+</section>
+
+<section id="journal" class="sheet hidden">
+  <div class="sheet-head"><span>чек</span><button class="close" aria-label="закрыть">×</button></div>
+  <div id="recent"></div>
+  <div class="row total"><span>месяц</span><b id="total"></b></div>
+  <button id="export" class="pill">csv</button>
+  <p id="export-path" class="label"></p>
+</section>
+
+<section id="log" class="sheet hidden">
+  <div class="sheet-head"><span>лог</span><button class="close" aria-label="закрыть">×</button></div>
+  <pre id="log-lines" class="log"></pre>
+</section>
+
+<section id="settings" class="sheet hidden">
+  <div class="sheet-head"><span>настройки</span><button id="settings-close" class="close" aria-label="закрыть">×</button></div>
+  <form id="settings-form">
+    <div id="welcome" class="welcome wide hidden">
+      <h1>добро пожаловать</h1>
+      <p>Создай отдельный проект в Serverspace и API-ключ с правами на изменение серверов и просмотр финансов. Вставь ключ ниже — остальное уже настроено.</p>
+      <p>Ключ останется на этом ПК и будет зашифрован средствами Windows.</p>
+    </div>
+    <label class="wide">api-ключ serverspace<input name="api_key" type="password" autocomplete="off" spellcheck="false" required></label>
+    <label>лимит ₽/мес<input name="monthly_limit" type="number" min="0" step="10"></label>
+    <label>сигнал с ₽<input name="warn_at" type="number" min="0" step="10"></label>
+    <label>сессия, ч<input name="session_hours" type="number" min="0.5" step="0.5"></label>
+    <label class="switch"><input name="autostart" type="checkbox"><i></i>с windows</label>
+    <details class="wide more">
+      <summary>ещё</summary>
+      <div class="grid">
+        <label>простой, мин<input name="idle_minutes" type="number" min="10" step="5"></label>
+        <label>порог мб/5мин<input name="idle_mb" type="number" min="0.1" step="0.1"></label>
+        <label>страховка, ч<input name="node_max_hours" type="number" min="1" step="1"></label>
+        <label>локация<input name="location"></label>
+        <label class="wide">sni<input name="sni"></label>
+        <label class="wide">игры мимо vpn <span id="detected"></span><textarea name="game_dirs" rows="3" placeholder="D:\Games"></textarea></label>
+        <label class="wide">exe мимо vpn<textarea name="direct_exes" rows="3" placeholder="Telegram.exe"></textarea></label>
+      </div>
+    </details>
+    <button type="submit" class="pill solid wide">записать</button>
+    <p id="settings-msg" class="label wide"></p>
+  </form>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

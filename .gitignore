@@ -1,0 +1,26 @@
+# Build and test output
+/minivpn
+*.exe
+*.exe~
+*.test
+*.db
+*.db-*
+*.log
+__pycache__/
+*.py[cod]
+test/e2e/.work/
+
+# Local credentials and personal notes
+.env
+.env.*
+!.env.example
+settings.json
+private.txt
+*.local.txt
+/INTERVIEW_PREP.md
+/docs/wishes.md
+
+# Local tools
+.claude/
+graphify-out/
+.DS_Store
